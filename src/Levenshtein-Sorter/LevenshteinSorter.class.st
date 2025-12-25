@@ -1,3 +1,6 @@
+"
+I sort completion lists by Levenshtein distance. Items with the smallest average distance to all other entries appear first, grouping similar completions together.
+"
 Class {
 	#name : 'LevenshteinSorter',
 	#superclass : 'CompletionSorter',
@@ -6,80 +9,42 @@ Class {
 }
 
 { #category : 'sorting' }
-LevenshteinSorter >> labelForEntry: anEntry [
-        "Extract the most descriptive label from a completion entry."
+LevenshteinSorter >> levenshtein: s with: t [
 
-        anEntry ifNil: [ ^ '' ].
-        (anEntry respondsTo: #label)
-                ifTrue: [ ^ (anEntry perform: #label) asString ].
-        (anEntry respondsTo: #text)
-                ifTrue: [ ^ (anEntry perform: #text) asString ].
-        ^ anEntry asString
-]
+	| m n d cost |
+	m := s size.
+	n := t size.
+	m = 0 ifTrue: [ ^ n ].
+	n = 0 ifTrue: [ ^ m ].
 
-{ #category : 'sorting' }
-LevenshteinSorter >> levenshteinDistanceBetween: aString and: anotherString [
-	"Compute the Levenshtein distance between two strings."
+	d := Array new: m + 1 * (n + 1).
 
-	| source target previous current |
-	aString ifNil: [ ^ anotherString size ].
-	anotherString ifNil: [ ^ aString size ].
+	0 to: m do: [ :i | d at: i * (n + 1) + 1 put: i ].
+	0 to: n do: [ :j | d at: j + 1 put: j ].
 
-	source := aString asString.
-	target := anotherString asString.
-
-	previous := (0 to: target size) asArray.
-
-	1 to: source size do: [ :i |
-			current := Array new: target size + 1.
-			current at: 1 put: i.
-
-			1 to: target size do: [ :j |
-					| cost |
-					cost := (source at: i) = (target at: j)
+	1 to: m do: [ :i |
+			1 to: n do: [ :j |
+					cost := (s at: i) = (t at: j)
 						        ifTrue: [ 0 ]
 						        ifFalse: [ 1 ].
+					d
+						at: i * (n + 1) + j + 1
+						put: (((d at: i - 1 * (n + 1) + j + 1) + 1 min: (d at: i * (n + 1) + j) + 1) min: (d at: i - 1 * (n + 1) + j) + cost) ] ].
 
-					current at: j + 1 put: (((current at: j) + 1 min: (previous at: j + 1) + 1) min: (previous at: j) + cost) ].
-
-			previous := current ].
-
-	^ previous last
+	^ d at: m * (n + 1) + n + 1
 ]
 
 { #category : 'sorting' }
-LevenshteinSorter >> sortCompletionList: aCompletionList [
+LevenshteinSorter >> sortCompletionList: anOrderedCollection [
 
-	| prefix |
-	aCompletionList ifEmpty: [ ^ aCompletionList ].
-	self context ifNil: [ ^ aCompletionList ].
-	prefix := self typedPrefix.
-	prefix isEmpty ifTrue: [ ^ aCompletionList ].
+	^ anOrderedCollection sort: [ :a :b |
+			  | aString bString avgDistA avgDistB |
+			  aString := a contents asString.
+			  bString := b contents asString.
 
-	^ aCompletionList asSortedCollection: [ :a :b |
-			  | distanceA distanceB labelA labelB |
-			  labelA := self labelForEntry: a.
-			  labelB := self labelForEntry: b.
-			  distanceA := self levenshteinDistanceBetween: prefix and: labelA.
-			  distanceB := self levenshteinDistanceBetween: prefix and: labelB.
-			  distanceA = distanceB
-				  ifTrue: [ labelA <= labelB ]
-				  ifFalse: [ distanceA < distanceB ] ]
-]
+			  avgDistA := (anOrderedCollection collect: [ :entry | self levenshtein: aString with: entry contents asString ]) average.
 
-{ #category : 'sorting' }
-LevenshteinSorter >> typedPrefix [
-	"Extract the word immediately before the caret from the current completion context."
+			  avgDistB := (anOrderedCollection collect: [ :entry | self levenshtein: bString with: entry contents asString ]) average.
 
-	| textUpToCaret tokens |
-	self context ifNil: [ ^ '' ].
-
-	(self context respondsTo: #currentWord) ifTrue: [ ^ (self context perform: #currentWord) asString ].
-
-	((self context respondsTo: #source) and: [ self context respondsTo: #position ]) ifFalse: [ ^ '' ].
-
-	textUpToCaret := (self context perform: #source) copyFrom: 1 to: (self context perform: #position).
-	tokens := textUpToCaret trimRight findTokens: Character separators.
-
-	^ tokens ifEmpty: [ '' ] ifNotEmpty: [ tokens last asString ]
+			  avgDistA <= avgDistB ]
 ]
